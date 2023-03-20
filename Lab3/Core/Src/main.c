@@ -21,7 +21,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#define IC_BUFFER_SIZE 20
+#define IC_BUFFER_SIZE 100
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -47,9 +47,15 @@ UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
 uint32_t InputCaptureBuffer[IC_BUFFER_SIZE] ;
-float averageRisingedgePriod ;
-uint32_t DutyCycle = 0 ;
-float rpm ;
+float averageRisingedgePeriod ;
+uint32_t MotorSetDuty = 0 ;
+float MotorReadRPM ;
+float lastrpm;
+float intergal ;
+float error ;
+float Kp = 1.2 ,Ki = 1,Pout,Iout,PIout;
+uint16_t MotorSetRPM = 0;
+uint16_t MotorControlEnable = 0;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -118,12 +124,23 @@ int main(void)
 	  static uint32_t timestamp = 0;
 	  	  if(HAL_GetTick() >= timestamp)
 	  	  {
-	  		  timestamp = HAL_GetTick()+500 ;
-	  		  averageRisingedgePriod = IC_Calc_Period();
-
-	  		  __HAL_TIM_SET_COMPARE(&htim1,TIM_CHANNEL_1,DutyCycle);
+	  		  timestamp = HAL_GetTick()+100 ; // 10Hz <-- dt
+	  		  averageRisingedgePeriod = IC_Calc_Period(); // rising to rising time
+	  		  MotorReadRPM = ((1/(averageRisingedgePeriod*12.0*0.000001))*60.0)/64.0;  //find rps and multiply to min then divide by gear ratio
+	  	  if(MotorControlEnable == 0)
+	  	  {
+	  		__HAL_TIM_SET_COMPARE(&htim1,TIM_CHANNEL_1,MotorSetDuty);  //set new compare
 	  	  }
-	  	  rpm = ((1/(averageRisingedgePriod*12.0*0.000001))*60.0)/64.0;  //find rps and multiply to min then divide by gear ratio
+	  	  else if(MotorControlEnable == 1)
+	  	  {
+	  		  error = MotorSetRPM - MotorReadRPM ; // rpm max < 46
+	  		  intergal += error * 0.1 ; // intergal = error * dt
+	  		  Pout = Kp * error ;
+	  		  Iout = Ki * intergal ;
+	  		  PIout = Pout + Iout ;
+	  		  __HAL_TIM_SET_COMPARE(&htim1,TIM_CHANNEL_1,PIout);  //set new compare
+	  	  }
+	  	  }
   }
   /* USER CODE END 3 */
 }
@@ -393,7 +410,7 @@ static void MX_GPIO_Init(void)
 float IC_Calc_Period(){
 	uint32_t currentDMAPointer = IC_BUFFER_SIZE - __HAL_DMA_GET_COUNTER((htim2.hdma[1]));
 	uint32_t lastValidDMAPointer = (currentDMAPointer-1 + IC_BUFFER_SIZE) % IC_BUFFER_SIZE ;
-	uint32_t i = (lastValidDMAPointer + IC_BUFFER_SIZE - 5) % IC_BUFFER_SIZE ;
+	uint32_t i = (lastValidDMAPointer + IC_BUFFER_SIZE - 10) % IC_BUFFER_SIZE ;
 
 	int32_t sumdiff = 0;
 	while(i != lastValidDMAPointer){
@@ -402,7 +419,7 @@ float IC_Calc_Period(){
 		sumdiff += NextCapture - firstCapture;
 		i = (i+1) % IC_BUFFER_SIZE ;
 	}
-	return sumdiff/5.0 ;
+	return sumdiff/10.0 ;
 }
 /* USER CODE END 4 */
 
