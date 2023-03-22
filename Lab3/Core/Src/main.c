@@ -49,9 +49,9 @@ UART_HandleTypeDef huart2;
 uint32_t InputCaptureBuffer[IC_BUFFER_SIZE] ;
 float averageRisingedgePeriod ;
 uint32_t MotorSetDuty = 0 ;
-float MotorReadRPM ;
+float MotorReadRPM = 0;
 float lastrpm;
-float intergal ;
+float intergal = 0;
 float error ;
 float Kp = 1.2 ,Ki = 1,Pout,Iout,PIout;
 uint16_t MotorSetRPM = 0;
@@ -108,10 +108,10 @@ int main(void)
   MX_TIM2_Init();
   /* USER CODE BEGIN 2 */
   HAL_TIM_Base_Start(&htim2);
-  HAL_TIM_IC_Start_DMA(&htim2, TIM_CHANNEL_1, InputCaptureBuffer, IC_BUFFER_SIZE);
+  HAL_TIM_IC_Start_DMA(&htim2, TIM_CHANNEL_1, InputCaptureBuffer, IC_BUFFER_SIZE); // timer 2 use dma to store data of encoder
 
   HAL_TIM_Base_Start(&htim1);
-  HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
+  HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1); // start pwm on timer 1 PA8
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -126,20 +126,34 @@ int main(void)
 	  	  {
 	  		  timestamp = HAL_GetTick()+100 ; // 10Hz <-- dt
 	  		  averageRisingedgePeriod = IC_Calc_Period(); // rising to rising time
-	  		  MotorReadRPM = ((1/(averageRisingedgePeriod*12.0*0.000001))*60.0)/64.0;  //find rps and multiply to min then divide by gear ratio
-	  	  if(MotorControlEnable == 0)
-	  	  {
-	  		__HAL_TIM_SET_COMPARE(&htim1,TIM_CHANNEL_1,MotorSetDuty);  //set new compare
-	  	  }
-	  	  else if(MotorControlEnable == 1)
-	  	  {
-	  		  error = MotorSetRPM - MotorReadRPM ; // rpm max < 46
-	  		  intergal += error * 0.1 ; // intergal = error * dt
-	  		  Pout = Kp * error ;
-	  		  Iout = Ki * intergal ;
-	  		  PIout = Pout + Iout ;
-	  		  __HAL_TIM_SET_COMPARE(&htim1,TIM_CHANNEL_1,PIout);  //set new compare
-	  	  }
+	  		  if(averageRisingedgePeriod == lastrpm)
+	  		  {
+	  			  MotorReadRPM = 0 ;
+	  		  }
+	  		  else
+	  		  {
+	  			  MotorReadRPM = ((1/(averageRisingedgePeriod*12.0*0.000001))*60.0)/64.0;  //find rps and multiply to min then divide by gear ratio
+	  		  }
+	  		  if(MotorControlEnable == 0)
+	  		  {
+	  			  __HAL_TIM_SET_COMPARE(&htim1,TIM_CHANNEL_1,MotorSetDuty);  //set new compare
+	  		  }
+	  		  else if(MotorControlEnable == 1)
+	  		  {
+	  			  error = MotorSetRPM - MotorReadRPM ; // rpm max < 46
+	  			  intergal += error * 0.1 ; // intergal = error * dt
+	  			  Pout = Kp * error ;     // Kp output
+	  			  Iout = Ki * intergal ; // Ki output
+	  			  if (MotorSetRPM == 0){
+	  				  PIout = 0 ;
+	  			  }
+	  			  else
+	  			  {
+	  				PIout = Pout + Iout ; // duty from pid
+	  			  }
+	  			  __HAL_TIM_SET_COMPARE(&htim1,TIM_CHANNEL_1,PIout);  //set new compare min 10 rpm
+	  		  }
+	  		  lastrpm = averageRisingedgePeriod ;
 	  	  }
   }
   /* USER CODE END 3 */
